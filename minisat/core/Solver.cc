@@ -425,28 +425,32 @@ void Solver::analyze(ClauseRef conflict, vec<Literal> &out_learnt, int &out_btle
   out_learnt[0] = ~p; // Set the asserting literal.
 
   // Simplify conflict clause:
-  int i;
-  int j;
+
+  // The asserted literal is at 0, so start at index 1.
+  int i = 1; // Index of the next kept literal.
+  int j = 1; // Index of the literal under consideration.
   out_learnt.copyTo(analyze_toclear);
 
   if (ccmin_mode == 2) {
 
-    for (i = j = 1; i < out_learnt.size(); i++) {
-      if (reason(var(out_learnt[i])) == CRef_Undef || !litRedundant(out_learnt[i])) {
+    // Keep a literal just in case it's reason is missing, or it's not redundant.
+    for (; i < out_learnt.size(); i++) {
+      if (!litRedundant(out_learnt[i])) {
         out_learnt[j++] = out_learnt[i];
       }
     }
 
   } else if (ccmin_mode == 1) {
-    for (i = j = 1; i < out_learnt.size(); i++) {
+    for (; i < out_learnt.size(); i++) {
       Var x = var(out_learnt[i]);
 
-      if (reason(x) == CRef_Undef) {
+      if (reason(x) == CRef_Undef) { // Keep any literal whose reason has been removed.
         out_learnt[j++] = out_learnt[i];
       } else {
-        Clause &c = ca[reason(var(out_learnt[i]))];
-        for (int k = 1; k < c.size(); k++) {
-          if (!seen[var(c[k])] && level(var(c[k])) > 0) {
+        Clause &clause = ca[reason(var(out_learnt[i]))];
+        for (int k = 1; k < clause.size(); k++) {
+          // Keep any literal whose current derivation rests on an unseen clause.
+          if (!seen[var(clause[k])] && level(var(clause[k])) > 0) {
             out_learnt[j++] = out_learnt[i];
             break;
           }
@@ -493,7 +497,9 @@ bool Solver::litRedundant(Literal literal) {
 
   assert(seen[var(literal)] == seen_undef || seen[var(literal)] == seen_source);
   // The clause used to obtain p has not been removed.
-  assert(reason(var(literal)) != CRef_Undef);
+  if (reason(var(literal)) == CRef_Undef) {
+    return false;
+  }
 
   Clause *reason_clause = &ca[reason(var(literal))];
   vec<ShrinkStackElem> &stack = analyze_stack; // The analyze prefix indicates exclusive use here.
