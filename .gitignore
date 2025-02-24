@@ -1,2 +1,4 @@
 config.mk
 build
+**.DS_Store
+.cache

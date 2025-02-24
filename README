@@ -1,3 +1,10 @@
+An opinionated examination of the MiniSAT source code.
+
+For the most part, functionality is untouched.
+However, syntax is refactored without restraint.
+In particular, clang is used to autoformat, variables are often made more explict, and rewrites may be present.
+In every instance changes are for ease of my own ease of understanding.
+
 ================================================================================
 Quick Install
 
