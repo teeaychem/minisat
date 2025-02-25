@@ -362,7 +362,7 @@ public:
 //=================================================================================================
 // OccLists -- a class for maintaining occurence lists with lazy deletion:
 
-template <class K, class Vec, class Deleted, class MkIndex = MkIndexDefault<K> >
+template <class K, class Vec, class Deleted, class MkIndex = MkIndexDefault<K>>
 class OccLists {
   IntMap<K, Vec, MkIndex> occs;
   IntMap<K, char, MkIndex> dirty;

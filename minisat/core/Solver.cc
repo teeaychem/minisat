@@ -574,28 +574,39 @@ bool Solver::litRedundant(Literal literal) {
 |    Calculates the (possibly empty) set of assumptions that led to the assignment of 'p', and
 |    stores the result in 'out_conflict'.
 |________________________________________________________________________________________________@*/
+/*
+  Literals are marked as seen if they are:
+  - Not proven (an assumption or consequence).
+  - Part of the derivation of p.
+
+  The derivation of p is part of the trail, so this amounts to walking through the trail backwards, noting literals as required.
+  There's no need for recursion, as a literal must be asserted before it can be used in BCP, and as the trail is examined backwards it follows the use of an asserted literal will be seen before the literal is asserted.
+ */
 void Solver::analyzeFinal(Literal p, LSet &out_conflict) {
   out_conflict.clear();
   out_conflict.insert(p);
 
-  if (decisionLevel() == 0)
+  if (decisionLevel() == 0) { // No assumptions have been made
     return;
+  }
 
   seen[var(p)] = 1;
 
   for (int i = trail.size() - 1; i >= trail_lim[0]; i--) {
     Var x = var(trail[i]);
-    if (seen[x]) {
-      if (reason(x) == CRef_Undef) {
-        assert(level(x) > 0);
+    if (seen[x]) {                   // Consider only those literals used to derive p.
+      if (reason(x) == CRef_Undef) { // Filter any implied literals.
+        assert(level(x) > 0);        // Why is this? Is it not possible to BCP on unit clauses and then on assumptions?
         out_conflict.insert(~trail[i]);
       } else {
-        Clause &c = ca[reason(x)];
-        for (int j = 1; j < c.size(); j++)
-          if (level(var(c[j])) > 0)
-            seen[var(c[j])] = 1;
+        Clause &clause = ca[reason(x)];
+        for (int j = 1; j < clause.size(); j++) { // For each literal in the clause
+          if (level(var(clause[j])) > 0) {        // If the literal was assumed
+            seen[var(clause[j])] = 1;             // Mark the literal as seen
+          }
+        }
       }
-      seen[x] = 0;
+      seen[x] = 0; // Ignore any further occurrences of x.
     }
   }
 
@@ -621,17 +632,26 @@ void Solver::uncheckedEnqueue(Literal p, ClauseRef from) {
 |      * the propagation queue is empty, even if there was a conflict.
 |________________________________________________________________________________________________@*/
 ClauseRef Solver::propagate() {
-  ClauseRef confl = CRef_Undef;
+  ClauseRef conflict = CRef_Undef;
   int num_props = 0;
 
   while (qhead < trail.size()) {
     Literal p = trail[qhead++]; // 'p' is enqueued fact to propagate.
-    vec<Watcher> &ws = watches.lookup(p);
-    Watcher *i, *j, *end;
+
+    vec<Watcher> &ws = watches.lookup(p); // Get the watch list for p.
+
+    Watcher *i;
+    Watcher *j;
+    Watcher *end; // The watch list may be mutated while examining the watches.
+                  // So, termination is checked against the last element rather than index.
+
     num_props++;
 
     for (i = j = (Watcher *)ws, end = i + ws.size(); i != end;) {
       // Try to avoid inspecting the clause:
+      // The blocker is the other watch from when the watch was created.
+      // If the literal is satsfied, the clause does not assert.
+      // However, as the watched literals may have changed this is the only use for a blocker.
       Literal blocker = i->blocker;
       if (value(blocker) == l_True) {
         *j++ = *i++;
@@ -639,50 +659,67 @@ ClauseRef Solver::propagate() {
       }
 
       // Make sure the false literal is data[1]:
+      // If possible, the first literal in a clause is unassigned.
+      // As p has been assigned, it should certainly not be first in the clause.
       ClauseRef cr = i->cref;
-      Clause &c = ca[cr];
+      Clause &clause = ca[cr];
       Literal false_lit = ~p;
-      if (c[0] == false_lit)
-        c[0] = c[1], c[1] = false_lit;
-      assert(c[1] == false_lit);
-      i++;
+      if (clause[0] == false_lit) {
+        clause[0] = clause[1], clause[1] = false_lit;
+      }
+      assert(clause[1] == false_lit);
 
-      // If 0th watch is true, then clause is already satisfied.
-      Literal first = c[0];
-      Watcher w = Watcher(cr, first);
-      if (first != blocker && value(first) == l_True) {
-        *j++ = w;
+      i++; // If j is not incremented, the watch will be dropped.
+
+      // If the first watch is true, the clause is already satisfied.
+      Literal first = clause[0];
+      Watcher fresh_watch = Watcher(cr, first); // Create a new watch, perhaps with an updated blocker.
+
+      if (first != blocker && value(first) == l_True) { // If the updated blocker continues to block…
+        *j++ = fresh_watch;                             // Keep the watch, but otherwise do nothing
         continue;
       }
 
-      // Look for new watch:
-      for (int k = 2; k < c.size(); k++)
-        if (value(c[k]) != l_False) {
-          c[1] = c[k];
-          c[k] = false_lit;
-          watches[~c[1]].push(w);
-          goto NextClause;
-        }
+      // At this point, the first literal is either false or unassgined.
+      // In either case, propagation is worthwhile.
+      // For, if the literal is fase, a conflict has been found.
 
-      // Did not find watch -- clause is unit under assignment:
-      *j++ = w;
-      if (value(first) == l_False) {
-        confl = cr;
+      // Look for new watch:
+      // The search for a new watch works through the clause in order each time.
+      // This is (in general) less optimal than a (circular) loop.
+      for (int k = 2; k < clause.size(); k++) {
+        if (value(clause[k]) != l_False) { // Either a satisfied literal or lack of assignment is ok for the updated watch.
+          clause[1] = clause[k];           // If found, swap current watch out from the watch position.
+          clause[k] = false_lit;
+          watches[~clause[1]].push(fresh_watch); // And, update the other watch list.
+          goto NextClause;                       // as j has not been incremented the watch is dropped.
+        }
+      }
+      // If no suitable watch was found, the clause can be used for BCP.
+
+      *j++ = fresh_watch; // Keep the updated watch, as this has a revised blocker.
+
+      if (value(first) == l_False) { // If the literal is unsatisfied, a conflict has been found.
+        // The conflict is added to the trail for access by other methods.
+        conflict = cr;
         qhead = trail.size();
-        // Copy the remaining watches:
-        while (i < end)
-          *j++ = *i++;
-      } else
+
+        while (i < end) { // Copy the remaining watches:
+          *j++ = *i++;    // As i == end, the current loop is broken on next check
+        }
+      } else {
         uncheckedEnqueue(first, cr);
+      }
 
     NextClause:;
     }
-    ws.shrink(i - j);
+
+    ws.shrink(i - j); // Shrink the clause to remove implictly dropped watches.
   }
   propagations += num_props;
   simpDB_props -= num_props;
 
-  return confl;
+  return conflict;
 }
 
 /*_________________________________________________________________________________________________
