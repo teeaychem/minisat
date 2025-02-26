@@ -478,7 +478,7 @@ bool SimpSolver::eliminateVar(Var v) {
     removeClause(cls[i]);
 
   // Produce clauses in cross product:
-  vec<Literal> &resolvent = add_tmp;
+  vec<Literal> &resolvent = add_clause_buffer;
   for (int i = 0; i < pos.size(); i++)
     for (int j = 0; j < neg.size(); j++)
       if (merge(ca[pos[i]], ca[neg[j]], v, resolvent) && !addClause_(resolvent))
@@ -501,14 +501,14 @@ bool SimpSolver::substitute(Var v, Literal x) {
   assert(!isEliminated(v));
   assert(value(v) == l_Undef);
 
-  if (!ok)
+  if (!unsat_unknown)
     return false;
 
   eliminated[v] = true;
   setDecisionVar(v, false);
   const vec<ClauseRef> &cls = occurs.lookup(v);
 
-  vec<Literal> &subst_clause = add_tmp;
+  vec<Literal> &subst_clause = add_clause_buffer;
   for (int i = 0; i < cls.size(); i++) {
     Clause &c = ca[cls[i]];
 
@@ -521,7 +521,7 @@ bool SimpSolver::substitute(Var v, Literal x) {
     removeClause(cls[i]);
 
     if (!addClause_(subst_clause))
-      return ok = false;
+      return unsat_unknown = false;
   }
 
   return true;
@@ -556,7 +556,7 @@ bool SimpSolver::eliminate(bool turn_off_elim) {
     // printf("  ## (time = %6.2f s) BWD-SUB: queue = %d, trail = %d\n", cpuTime(), subsumption_queue.size(), trail.size() - bwdsub_assigns);
     if ((subsumption_queue.size() > 0 || bwdsub_assigns < trail.size()) &&
         !backwardSubsumptionCheck(true)) {
-      ok = false;
+      unsat_unknown = false;
       goto cleanup;
     }
 
@@ -587,7 +587,7 @@ bool SimpSolver::eliminate(bool turn_off_elim) {
         bool was_frozen = frozen[elim];
         frozen[elim] = true;
         if (!asymmVar(elim)) {
-          ok = false;
+          unsat_unknown = false;
           goto cleanup;
         }
         frozen[elim] = was_frozen;
@@ -596,7 +596,7 @@ bool SimpSolver::eliminate(bool turn_off_elim) {
       // At this point, the variable may have been set by assymetric branching, so check it
       // again. Also, don't eliminate frozen variables:
       if (use_elim && value(elim) == l_Undef && !frozen[elim] && !eliminateVar(elim)) {
-        ok = false;
+        unsat_unknown = false;
         goto cleanup;
       }
 
@@ -632,7 +632,7 @@ cleanup:
     printf("|  Eliminated clauses:     %10.2f Mb                                      |\n",
            double(elimclauses.size() * sizeof(uint32_t)) / (1024 * 1024));
 
-  return ok;
+  return unsat_unknown;
 }
 
 //=================================================================================================

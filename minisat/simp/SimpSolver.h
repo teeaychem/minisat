@@ -40,11 +40,8 @@ public:
   Var newVar(lbool upol = l_Undef, bool dvar = true);
   void releaseVar(Literal l);
   bool addClause(const vec<Literal> &ps);
-  bool addEmptyClause();                      // Add the empty clause to the solver.
-  bool addClause(Literal p);                      // Add a unit clause to the solver.
-  bool addClause(Literal p, Literal q);               // Add a binary clause to the solver.
-  bool addClause(Literal p, Literal q, Literal r);        // Add a ternary clause to the solver.
-  bool addClause(Literal p, Literal q, Literal r, Literal s); // Add a quaternary clause to the solver.
+  bool addEmptyClause();     // Add the empty clause to the solver.
+  bool addClause(Literal p); // Add a unit clause to the solver.
   bool addClause_(vec<Literal> &ps);
   bool substitute(Var v, Literal x); // Replace all occurences of v with x (may cause a contradiction).
 
@@ -178,39 +175,19 @@ inline void SimpSolver::updateElimHeap(Var v) {
 }
 
 inline bool SimpSolver::addClause(const vec<Literal> &ps) {
-  ps.copyTo(add_tmp);
-  return addClause_(add_tmp);
+  ps.copyTo(add_clause_buffer);
+  return addClause_(add_clause_buffer);
 }
 inline bool SimpSolver::addEmptyClause() {
-  add_tmp.clear();
-  return addClause_(add_tmp);
+  add_clause_buffer.clear();
+  return addClause_(add_clause_buffer);
 }
 inline bool SimpSolver::addClause(Literal p) {
-  add_tmp.clear();
-  add_tmp.push(p);
-  return addClause_(add_tmp);
+  add_clause_buffer.clear();
+  add_clause_buffer.push(p);
+  return addClause_(add_clause_buffer);
 }
-inline bool SimpSolver::addClause(Literal p, Literal q) {
-  add_tmp.clear();
-  add_tmp.push(p);
-  add_tmp.push(q);
-  return addClause_(add_tmp);
-}
-inline bool SimpSolver::addClause(Literal p, Literal q, Literal r) {
-  add_tmp.clear();
-  add_tmp.push(p);
-  add_tmp.push(q);
-  add_tmp.push(r);
-  return addClause_(add_tmp);
-}
-inline bool SimpSolver::addClause(Literal p, Literal q, Literal r, Literal s) {
-  add_tmp.clear();
-  add_tmp.push(p);
-  add_tmp.push(q);
-  add_tmp.push(r);
-  add_tmp.push(s);
-  return addClause_(add_tmp);
-}
+
 inline void SimpSolver::setFrozen(Var v, bool b) {
   frozen[v] = (char)b;
   if (use_simplification && !b) {

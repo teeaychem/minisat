@@ -81,7 +81,7 @@ Solver::Solver() : // Parameters (user settable):
                    rnd_decisions(0),
                    propagations(0),
                    conflicts(0),
-                   dec_vars(0),
+                   unassigned_decision_variable_count(0),
                    num_clauses(0),
                    num_learnts(0),
                    clauses_literals(0),
@@ -91,7 +91,7 @@ Solver::Solver() : // Parameters (user settable):
 
                    watches(WatcherDeleted(ca)),
                    order_heap(VarOrderLt(activity)),
-                   ok(true),
+                   unsat_unknown(true),
                    cla_inc(1),
                    var_inc(1),
                    qhead(0),
@@ -129,7 +129,7 @@ Var Solver::newVar(lbool upol, bool dvar) {
   watches.init(mkLiteral(v, true));
 
   // Extend the assignment
-  assigns.insert(v, l_Undef);
+  assignment.insert(v, l_Undef);
 
   // Set the reason and level (undefined, zero)
   vardata.insert(v, mkVarData(CRef_Undef, 0));
@@ -150,8 +150,7 @@ Var Solver::newVar(lbool upol, bool dvar) {
   return v;
 }
 
-// Note: at the moment, only unassigned variable will be released
-// (this is to avoid duplicate releases of the same variable).
+// Note: at the moment, only unassigned variable will be released (this is to avoid duplicate releases of the same variable).
 void Solver::releaseVar(Literal l) {
   if (value(l) == l_Undef) {
     addClause(l);
@@ -159,15 +158,20 @@ void Solver::releaseVar(Literal l) {
   }
 }
 
+// Adds a clause to the solver, so long as the clause does not lead to an immediate contradiction.
+// Returns true if the clause was added, false otherwise.
 bool Solver::addClause_(vec<Literal> &clause) {
   assert(decisionLevel() == 0);
-  if (!ok)
+
+  if (!unsat_unknown) { // Prevent adding to an unsat formula.
     return false;
+  }
 
   // Check if clause is satisfied and remove false/duplicate literals:
   sort(clause);
   Literal literal;
-  int i, j;
+  int i;
+  int j;
 
   for (i = j = 0, literal = lit_Undef; i < clause.size(); i++) {
     if (value(clause[i]) == l_True || clause[i] == ~literal) {
@@ -179,20 +183,22 @@ bool Solver::addClause_(vec<Literal> &clause) {
     }
   }
 
-  clause.shrink(i - j);
+  clause.shrink(i - j); // Remove any dropped literals.
 
   if (clause.size() == 0) {
-    return ok = false; // False on a contradiction
+    unsat_unknown = false; // Unsat is known on a contradiction
   } else if (clause.size() == 1) {
-    uncheckedEnqueue(clause[0]);
-    return ok = (propagate() == CRef_Undef); // Immediately propagate a unit clause
+    uncheckedEnqueue(clause[0]);                 // Unit clauses are implicit as part of the trail.
+    unsat_unknown = (propagate() == CRef_Undef); // Immediately propagate a unit clause
   } else {
     ClauseRef cr = ca.alloc(clause, false);
     clauses.push(cr);
     attachClause(cr); // Sets the watches, increments counters
   }
 
-  return true;
+  // A clause fails to be added only if it leads to a (immediate) contradiction.
+  // And, if so, it is known the formula would be unsatisfiable.
+  return unsat_unknown;
 }
 
 void Solver::attachClause(ClauseRef cr) {
@@ -264,7 +270,7 @@ void Solver::cancelUntil(int level) {
     for (int lit_idx = trail.size() - 1; lit_idx >= trail_lim[level]; lit_idx--) {
 
       Var v = var(trail[lit_idx]);
-      assigns[v] = l_Undef;
+      assignment[v] = l_Undef;
 
       if (phase_saving > 1 || (phase_saving == 1 && lit_idx > trail_lim.last())) {
         polarity[v] = sign(trail[lit_idx]);
@@ -615,7 +621,7 @@ void Solver::analyzeFinal(Literal p, LSet &out_conflict) {
 
 void Solver::uncheckedEnqueue(Literal p, ClauseRef from) {
   assert(value(p) == l_Undef);
-  assigns[var(p)] = lbool(!sign(p));
+  assignment[var(p)] = lbool(!sign(p));
   vardata[var(p)] = mkVarData(from, decisionLevel());
   trail.push_(p);
 }
@@ -794,8 +800,8 @@ void Solver::rebuildOrderHeap() {
 bool Solver::simplify() {
   assert(decisionLevel() == 0);
 
-  if (!ok || propagate() != CRef_Undef)
-    return ok = false;
+  if (!unsat_unknown || propagate() != CRef_Undef)
+    return unsat_unknown = false;
 
   if (nAssigns() == simpDB_assigns || (simpDB_props > 0))
     return true;
@@ -851,7 +857,7 @@ bool Solver::simplify() {
 |    if the clause set is unsatisfiable. 'l_Undef' if the bound on number of conflicts is reached.
 |________________________________________________________________________________________________@*/
 lbool Solver::search(int nof_conflicts) {
-  assert(ok);
+  assert(unsat_unknown);
   int backtrack_level;
   int conflictC = 0;
   vec<Literal> learnt_clause;
@@ -891,7 +897,7 @@ lbool Solver::search(int nof_conflicts) {
         if (verbosity >= 1)
           printf("| %9d | %7d %8d %8d | %8d %8d %6.0f | %6.3f %% |\n",
                  (int)conflicts,
-                 (int)dec_vars - (trail_lim.size() == 0 ? trail.size() : trail_lim[0]), nClauses(), (int)clauses_literals,
+                 (int)unassigned_decision_variable_count - (trail_lim.size() == 0 ? trail.size() : trail_lim[0]), nClauses(), (int)clauses_literals,
                  (int)max_learnts, nLearnts(), (double)learnts_literals / nLearnts(), progressEstimate() * 100);
       }
 
@@ -991,7 +997,7 @@ static double luby(double y, int x) {
 lbool Solver::solve_() {
   model.clear();
   conflict.clear();
-  if (!ok)
+  if (!unsat_unknown)
     return l_False;
 
   solves++;
@@ -1030,7 +1036,7 @@ lbool Solver::solve_() {
     for (int i = 0; i < nVars(); i++)
       model[i] = value(i);
   } else if (status == l_False && conflict.size() == 0)
-    ok = false;
+    unsat_unknown = false;
 
   cancelUntil(0);
   return status;
@@ -1094,7 +1100,7 @@ void Solver::toDimacs(const char *file, const vec<Literal> &assumps) {
 
 void Solver::toDimacs(FILE *f, const vec<Literal> &assumps) {
   // Handle case when solver is in contradictory state:
-  if (!ok) {
+  if (!unsat_unknown) {
     fprintf(f, "p cnf 1 2\n1 0\n-1 0\n");
     return;
   }

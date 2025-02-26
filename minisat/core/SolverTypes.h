@@ -304,10 +304,12 @@ public:
   Clause &operator[](ClauseRef r) { return (Clause &)ra[r]; }
   const Clause &operator[](ClauseRef r) const { return (Clause &)ra[r]; }
   Clause *lea(ClauseRef r) { return (Clause *)ra.lea(r); }
+
   const Clause *lea(ClauseRef r) const {
     return (Clause *)ra.lea(r);
     ;
   }
+
   ClauseRef ael(const Clause *t) { return ra.ael((uint32_t *)t); }
 
   void free(ClauseRef cid) {
