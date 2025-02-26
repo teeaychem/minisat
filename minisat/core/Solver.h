@@ -45,14 +45,11 @@ public:
   Var newVar(lbool upol = l_Undef, bool dvar = true); // Add a new variable with parameters specifying variable mode.
   void releaseVar(Literal l);                         // Make literal true and promise to never refer to variable again.
 
-  bool addClause(const vec<Literal> &ps);                     // Add a clause to the solver.
-  bool addEmptyClause();                                      // Add the empty clause, making the solver contradictory.
-  bool addClause(Literal p);                                  // Add a unit clause to the solver.
-  bool addClause(Literal p, Literal q);                       // Add a binary clause to the solver.
-  bool addClause(Literal p, Literal q, Literal r);            // Add a ternary clause to the solver.
-  bool addClause(Literal p, Literal q, Literal r, Literal s); // Add a quaternary clause to the solver.
-  bool addClause_(vec<Literal> &ps);                          // Add a clause to the solver without making superflous internal copy. Will
-                                                              // change the passed vector 'ps'.
+  bool addClause(const vec<Literal> &clause); // Add a clause to the solver.
+  bool addEmptyClause();                      // Add the empty clause, making the solver contradictory.
+  bool addClause(Literal p);                  // Add a unit clause to the solver.
+
+  bool addClause_(vec<Literal> &clause); // Add a clause to the solver without making superflous internal copy. Will change the passed vector 'clause'.
 
   // Solving:
   //
@@ -147,7 +144,7 @@ public:
   // Statistics: (read-only member variable)
   //
   uint64_t solves, starts, decisions, rnd_decisions, propagations, conflicts;
-  uint64_t dec_vars, num_clauses, num_learnts, clauses_literals, learnts_literals, max_literals, tot_literals;
+  uint64_t unassigned_decision_variable_count, num_clauses, num_learnts, clauses_literals, learnts_literals, max_literals, tot_literals;
 
 protected:
   // Helper structures:
@@ -198,18 +195,18 @@ protected:
   vec<int> trail_lim;       // Separator indices for different decision levels in 'trail'.
   vec<Literal> assumptions; // Current set of assumptions provided to solve by the user.
 
-  VMap<double> activity; // A heuristic measurement of the activity of a variable.
-  VMap<lbool> assigns;   // The current assignments.
-  VMap<char> polarity;   // The preferred polarity of each variable.
-  VMap<lbool> user_pol;  // The users preferred polarity of each variable.
-  VMap<char> decision;   // Declares if a variable is eligible for selection in the decision heuristic.
-  VMap<VarData> vardata; // Stores reason and level for each variable.
+  VMap<double> activity;  // A heuristic measurement of the activity of a variable.
+  VMap<lbool> assignment; // The current assignments.
+  VMap<char> polarity;    // The preferred polarity of each variable.
+  VMap<lbool> user_pol;   // The users preferred polarity of each variable.
+  VMap<char> decision;    // Declares if a variable is eligible for selection in the decision heuristic.
+  VMap<VarData> vardata;  // Stores reason and level for each variable.
   OccLists<Literal, vec<Watcher>, WatcherDeleted, MkIndexLit>
       watches; // 'watches[lit]' is a list of constraints watching 'lit' (will go there if literal becomes true).
 
   Heap<Var, VarOrderLt> order_heap; // A priority queue of variables ordered with respect to the variable activity.
 
-  bool ok;                  // If FALSE, the constraints are already unsatisfiable. No part of the solver state may be used!
+  bool unsat_unknown;       // If FALSE, the constraints are already unsatisfiable. No part of the solver state may be used!
   double cla_inc;           // Amount to bump next clause with.
   double var_inc;           // Amount to bump next variable with.
   int qhead;                // Head of queue (as index into the trail -- no more explicit propagation queue in MiniSat).
@@ -227,7 +224,7 @@ protected:
   VMap<char> seen;
   vec<ShrinkStackElem> analyze_stack;
   vec<Literal> analyze_toclear;
-  vec<Literal> add_tmp;
+  vec<Literal> add_clause_buffer;
 
   double max_learnts;
   double learntsize_adjust_confl;
@@ -242,7 +239,7 @@ protected:
   // Main internal methods:
   //
   void insertVarOrder(Var x);                                                // Insert a variable in the decision order priority queue.
-  Literal pickBranchLiteral();                                                   // Return the next decision variable.
+  Literal pickBranchLiteral();                                               // Return the next decision variable.
   void newDecisionLevel();                                                   // Begins a new decision level.
   void uncheckedEnqueue(Literal p, ClauseRef from = CRef_Undef);             // Enqueue a literal. Assumes value of literal is undefined.
   bool enqueue(Literal p, ClauseRef from = CRef_Undef);                      // Test if fact 'p' contradicts current state, enqueue otherwise.
@@ -263,7 +260,7 @@ protected:
   void varBumpActivity(Var v, double inc); // Increase a variable with the current 'bump' value.
   void varBumpActivity(Var v);             // Increase a variable with the current 'bump' value.
   void claDecayActivity();                 // Decay all clauses with the specified factor. Implemented by increasing the 'bump' value instead.
-  void clauseBumpActivity(Clause &c);         // Increase a clause with the current 'bump' value.
+  void clauseBumpActivity(Clause &c);      // Increase a clause with the current 'bump' value.
 
   // Operations on clauses:
   //
@@ -339,70 +336,115 @@ inline void Solver::clauseBumpActivity(Clause &c) {
 }
 
 inline void Solver::checkGarbage(void) { return checkGarbage(garbage_frac); }
+
 inline void Solver::checkGarbage(double gf) {
   if (ca.wasted() > ca.size() * gf)
     garbageCollect();
 }
 
 // NOTE: enqueue does not set the ok flag! (only public methods do)
-inline bool Solver::enqueue(Literal p, ClauseRef from) { return value(p) != l_Undef ? value(p) != l_False : (uncheckedEnqueue(p, from), true); }
-inline bool Solver::addClause(const vec<Literal> &ps) {
-  ps.copyTo(add_tmp);
-  return addClause_(add_tmp);
+inline bool Solver::enqueue(Literal p, ClauseRef from) {
+  if (value(p) != l_Undef) {    // If already valued…
+    return value(p) != l_False; // … return whether on the queue or impossible to queue.
+  } else {
+    return (uncheckedEnqueue(p, from), true); // Value and set decision level.
+  }
+}
+
+inline bool Solver::addClause(const vec<Literal> &clause) {
+  clause.copyTo(add_clause_buffer);
+  return addClause_(add_clause_buffer);
 }
 inline bool Solver::addEmptyClause() {
-  add_tmp.clear();
-  return addClause_(add_tmp);
+  add_clause_buffer.clear();
+  return addClause_(add_clause_buffer);
 }
+
 inline bool Solver::addClause(Literal p) {
-  add_tmp.clear();
-  add_tmp.push(p);
-  return addClause_(add_tmp);
-}
-inline bool Solver::addClause(Literal p, Literal q) {
-  add_tmp.clear();
-  add_tmp.push(p);
-  add_tmp.push(q);
-  return addClause_(add_tmp);
-}
-inline bool Solver::addClause(Literal p, Literal q, Literal r) {
-  add_tmp.clear();
-  add_tmp.push(p);
-  add_tmp.push(q);
-  add_tmp.push(r);
-  return addClause_(add_tmp);
-}
-inline bool Solver::addClause(Literal p, Literal q, Literal r, Literal s) {
-  add_tmp.clear();
-  add_tmp.push(p);
-  add_tmp.push(q);
-  add_tmp.push(r);
-  add_tmp.push(s);
-  return addClause_(add_tmp);
+  add_clause_buffer.clear();
+  add_clause_buffer.push(p);
+  return addClause_(add_clause_buffer);
 }
 
 inline bool Solver::isRemoved(ClauseRef cr) const { return ca[cr].mark() == 1; }
-inline bool Solver::locked(const Clause &c) const { return value(c[0]) == l_True && reason(var(c[0])) != CRef_Undef && ca.lea(reason(var(c[0]))) == &c; }
-inline void Solver::newDecisionLevel() { trail_lim.push(trail.size()); }
 
-inline int Solver::decisionLevel() const { return trail_lim.size(); }
-inline uint32_t Solver::abstractLevel(Var x) const { return 1 << (level(x) & 31); }
-inline lbool Solver::value(Var x) const { return assigns[x]; }
-inline lbool Solver::value(Literal p) const { return assigns[var(p)] ^ sign(p); }
-inline lbool Solver::modelValue(Var x) const { return model[x]; }
-inline lbool Solver::modelValue(Literal p) const { return model[var(p)] ^ sign(p); }
-inline int Solver::nAssigns() const { return trail.size(); }
+// A clause is locked whenever it has been used for an instance of propagation.
+// The relevant background invariant here is that the last literal to be assigned is at the first index of a clause.
+inline bool Solver::locked(const Clause &clause) const {
+  bool satsfied_watch = value(clause[0]) == l_True;
+  bool via_some_clause = reason(var(clause[0])) != CRef_Undef;
+  bool via_this_clause = ca.lea(reason(var(clause[0]))) == &clause;
+
+  return satsfied_watch && via_some_clause && via_this_clause;
+}
+
+// Creates a mark to signify the start of a new level in the trail.
+inline void Solver::newDecisionLevel() {
+  trail_lim.push(trail.size());
+}
+
+// A count of the number of markers used to indicate a new level.
+inline int Solver::decisionLevel() const {
+  return trail_lim.size();
+}
+
+inline uint32_t Solver::abstractLevel(Var x) const {
+  return 1 << (level(x) & 31);
+}
+
+// The value of `x` on the current assignment.
+// Note the return value of lbool, rather than bool.
+inline lbool Solver::value(Var x) const {
+  return assignment[x];
+}
+
+// The value of a litera on the current assignment.
+inline lbool Solver::value(Literal p) const {
+  // The value of p on the current assignment and the sign of p are the same.
+  return assignment[var(p)] ^ sign(p);
+}
+
+// The value of `x` on the last model.
+inline lbool Solver::modelValue(Var x) const {
+  return model[x];
+}
+
+// The value of the literal on the last model.
+inline lbool Solver::modelValue(Literal p) const {
+  return model[var(p)] ^ sign(p);
+}
+
+// A count of assignments made.
+// As the trail stores all assignments, this amounts to the size of the trail.
+inline int Solver::nAssigns() const {
+  return trail.size();
+}
+
 inline int Solver::nClauses() const { return num_clauses; }
+
 inline int Solver::nLearnts() const { return num_learnts; }
+
 inline int Solver::nVars() const { return next_var; }
+
 // TODO: nFreeVars() is not quite correct, try to calculate right instead of adapting it like below:
-inline int Solver::nFreeVars() const { return (int)dec_vars - (trail_lim.size() == 0 ? trail.size() : trail_lim[0]); }
+// The intended value is not documented in the source, nor in the paper.
+// So, what would be correct is a guess… though by name this should be all variables which have not been assigned.
+inline int Solver::nFreeVars() const {
+  // If no assumptions have been made, subtract the trail.
+  // If some assumptions have been made, things are more difficult, as assumptions are mixed with consequences of those assumptions.
+  // Taking the first separator will discount propagations with no assumptions, but some additional propagations may have happened.
+  return (int)unassigned_decision_variable_count - (trail_lim.size() == 0 ? trail.size() : trail_lim[0]);
+}
 inline void Solver::setPolarity(Var v, lbool b) { user_pol[v] = b; }
+
+// If b is false, the value of v is not up for decision, otherwise the value of v may be set.
+// Only used during with a fresh variable.
 inline void Solver::setDecisionVar(Var v, bool b) {
-  if (b && !decision[v])
-    dec_vars++;
-  else if (!b && decision[v])
-    dec_vars--;
+  if (b && !decision[v]) {
+    unassigned_decision_variable_count++;
+  } else if (!b && decision[v]) {
+    unassigned_decision_variable_count--;
+  }
 
   decision[v] = b;
   insertVarOrder(v);
@@ -456,7 +498,7 @@ inline lbool Solver::solveLimited(const vec<Literal> &assumps) {
   assumps.copyTo(assumptions);
   return solve_();
 }
-inline bool Solver::okay() const { return ok; }
+inline bool Solver::okay() const { return unsat_unknown; }
 
 inline ClauseIterator Solver::clausesBegin() const { return ClauseIterator(ca, &clauses[0]); }
 inline ClauseIterator Solver::clausesEnd() const { return ClauseIterator(ca, &clauses[clauses.size()]); }
