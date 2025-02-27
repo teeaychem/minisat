@@ -175,17 +175,17 @@ inline void SimpSolver::updateElimHeap(Var v) {
 }
 
 inline bool SimpSolver::addClause(const vec<Literal> &ps) {
-  ps.copyTo(add_clause_buffer);
-  return addClause_(add_clause_buffer);
+  ps.copyTo(tmp_add_clause_buffer);
+  return addClause_(tmp_add_clause_buffer);
 }
 inline bool SimpSolver::addEmptyClause() {
-  add_clause_buffer.clear();
-  return addClause_(add_clause_buffer);
+  tmp_add_clause_buffer.clear();
+  return addClause_(tmp_add_clause_buffer);
 }
 inline bool SimpSolver::addClause(Literal p) {
-  add_clause_buffer.clear();
-  add_clause_buffer.push(p);
-  return addClause_(add_clause_buffer);
+  tmp_add_clause_buffer.clear();
+  tmp_add_clause_buffer.push(p);
+  return addClause_(tmp_add_clause_buffer);
 }
 
 inline void SimpSolver::setFrozen(Var v, bool b) {

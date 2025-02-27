@@ -123,7 +123,7 @@ bool SimpSolver::addClause_(vec<Literal> &ps) {
     assert(!isEliminated(var(ps[i])));
 #endif
 
-  int nclauses = clauses.size();
+  int nclauses = addition_clauses.size();
 
   if (use_rcheck && implied(ps))
     return true;
@@ -131,8 +131,8 @@ bool SimpSolver::addClause_(vec<Literal> &ps) {
   if (!Solver::addClause_(ps))
     return false;
 
-  if (use_simplification && clauses.size() == nclauses + 1) {
-    ClauseRef cr = clauses.last();
+  if (use_simplification && addition_clauses.size() == nclauses + 1) {
+    ClauseRef cr = addition_clauses.last();
     const Clause &c = ca[cr];
 
     // NOTE: the clause is added to the queue immediately and then
@@ -281,7 +281,7 @@ void SimpSolver::gatherTouchedClauses() {
 bool SimpSolver::implied(const vec<Literal> &c) {
   assert(decisionLevel() == 0);
 
-  trail_lim.push(trail.size());
+  trail_separators.push(trail.size());
   for (int i = 0; i < c.size(); i++)
     if (value(c[i]) == l_True) {
       cancelUntil(0);
@@ -373,7 +373,7 @@ bool SimpSolver::asymm(Var v, ClauseRef cr) {
   if (c.mark() || satisfied(c))
     return true;
 
-  trail_lim.push(trail.size());
+  trail_separators.push(trail.size());
   Literal l = lit_Undef;
   for (int i = 0; i < c.size(); i++)
     if (var(c[i]) != v && value(c[i]) != l_False)
@@ -478,7 +478,7 @@ bool SimpSolver::eliminateVar(Var v) {
     removeClause(cls[i]);
 
   // Produce clauses in cross product:
-  vec<Literal> &resolvent = add_clause_buffer;
+  vec<Literal> &resolvent = tmp_add_clause_buffer;
   for (int i = 0; i < pos.size(); i++)
     for (int j = 0; j < neg.size(); j++)
       if (merge(ca[pos[i]], ca[neg[j]], v, resolvent) && !addClause_(resolvent))
@@ -508,7 +508,7 @@ bool SimpSolver::substitute(Var v, Literal x) {
   setDecisionVar(v, false);
   const vec<ClauseRef> &cls = occurs.lookup(v);
 
-  vec<Literal> &subst_clause = add_clause_buffer;
+  vec<Literal> &subst_clause = tmp_add_clause_buffer;
   for (int i = 0; i < cls.size(); i++) {
     Clause &c = ca[cls[i]];
 
