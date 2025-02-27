@@ -58,8 +58,6 @@ public:
   lbool solveLimited(const vec<Literal> &assumps); // Search for a model that respects a given set of assumptions (With resource constraints).
   bool solve();                                    // Search without assumptions.
   bool solve(Literal p);                           // Search for a model that respects a single assumption.
-  bool solve(Literal p, Literal q);                // Search for a model that respects two assumptions.
-  bool solve(Literal p, Literal q, Literal r);     // Search for a model that respects three assumptions.
   bool okay() const;                               // FALSE means solver is in a conflicting state
 
   bool implies(const vec<Literal> &assumps, vec<Literal> &out);
@@ -77,8 +75,6 @@ public:
   // Convenience versions of 'toDimacs()':
   void toDimacs(const char *file);
   void toDimacs(const char *file, Literal p);
-  void toDimacs(const char *file, Literal p, Literal q);
-  void toDimacs(const char *file, Literal p, Literal q, Literal r);
 
   // Variable mode:
   //
@@ -99,7 +95,6 @@ public:
   void printStats() const; // Print some current statistics to standard output.
 
   // Resource contraints:
-  //
   void setConfBudget(int64_t x);
   void setPropBudget(int64_t x);
   void budgetOff();
@@ -189,27 +184,27 @@ protected:
 
   // Solver state:
   //
-  vec<ClauseRef> clauses;   // List of problem clauses.
-  vec<ClauseRef> learnts;   // List of learnt clauses.
-  vec<Literal> trail;       // Assignment stack; stores all assigments made in the order they were made.
-  vec<int> trail_lim;       // Separator indices for different decision levels in 'trail'.
-  vec<Literal> assumptions; // Current set of assumptions provided to solve by the user.
+  vec<ClauseRef> original_clauses; // List of problem clauses.
+  vec<ClauseRef> addition_clauses; // List of learnt clauses.
+  vec<Literal> trail;              // Assignment stack; stores all assigments made in the order they were made.
+  vec<int> trail_separators;       // Separator indices for different decision levels in 'trail'.
+  vec<Literal> assumptions;        // Current set of assumptions provided to solve by the user.
 
-  VMap<double> activity;  // A heuristic measurement of the activity of a variable.
-  VMap<lbool> assignment; // The current assignments.
-  VMap<char> polarity;    // The preferred polarity of each variable.
-  VMap<lbool> user_pol;   // The users preferred polarity of each variable.
-  VMap<char> decision;    // Declares if a variable is eligible for selection in the decision heuristic.
-  VMap<VarData> vardata;  // Stores reason and level for each variable.
+  VMap<double> activity;     // A heuristic measurement of the activity of a variable.
+  VMap<lbool> assignment;    // The current assignments.
+  VMap<char> polarity;       // The preferred polarity of each variable.
+  VMap<lbool> user_polarity; // The users preferred polarity of each variable.
+  VMap<char> decision;       // Declares if a variable is eligible for selection in the decision heuristic.
+  VMap<VarData> vardata;     // Stores reason and level for each variable.
   OccLists<Literal, vec<Watcher>, WatcherDeleted, MkIndexLit>
       watches; // 'watches[lit]' is a list of constraints watching 'lit' (will go there if literal becomes true).
 
   Heap<Var, VarOrderLt> order_heap; // A priority queue of variables ordered with respect to the variable activity.
 
   bool unsat_unknown;       // If FALSE, the constraints are already unsatisfiable. No part of the solver state may be used!
-  double cla_inc;           // Amount to bump next clause with.
-  double var_inc;           // Amount to bump next variable with.
-  int qhead;                // Head of queue (as index into the trail -- no more explicit propagation queue in MiniSat).
+  double clause_bump;       // Amount to bump next clause with.
+  double variable_bump;     // Amount to bump next variable with.
+  int queue_head;           // Head of queue (as index into the trail -- no more explicit propagation queue in MiniSat).
   int simpDB_assigns;       // Number of top-level assignments since last execution of 'simplify()'.
   int64_t simpDB_props;     // Remaining number of propagations that must be made before next execution of 'simplify()'.
   double progress_estimate; // Set by 'search()'.
@@ -221,23 +216,21 @@ protected:
   vec<Var> free_vars;
 
   // Temporaries (to reduce allocation overhead). Each variable is prefixed by the method in which it is used, exept 'seen' wich is used in several places.
-  VMap<char> seen;
-  vec<ShrinkStackElem> analyze_stack;
-  vec<Literal> analyze_toclear;
-  vec<Literal> add_clause_buffer;
+  VMap<char> tmp_seen;
+  vec<ShrinkStackElem> tmp_analyze_stack;
+  vec<Literal> tmp_analyze_toclear;
+  vec<Literal> tmp_add_clause_buffer;
 
   double max_learnts;
   double learntsize_adjust_confl;
   int learntsize_adjust_cnt;
 
   // Resource contraints:
-  //
   int64_t conflict_budget;    // -1 means no budget.
   int64_t propagation_budget; // -1 means no budget.
   bool asynch_interrupt;
 
   // Main internal methods:
-  //
   void insertVarOrder(Var x);                                                // Insert a variable in the decision order priority queue.
   Literal pickBranchLiteral();                                               // Return the next decision variable.
   void newDecisionLevel();                                                   // Begins a new decision level.
@@ -255,7 +248,6 @@ protected:
   void rebuildOrderHeap();
 
   // Maintaining Variable/Clause activity:
-  //
   void varDecayActivity();                 // Decay all variables with the specified factor. Implemented by increasing the 'bump' value instead.
   void varBumpActivity(Var v, double inc); // Increase a variable with the current 'bump' value.
   void varBumpActivity(Var v);             // Increase a variable with the current 'bump' value.
@@ -263,7 +255,6 @@ protected:
   void clauseBumpActivity(Clause &c);      // Increase a clause with the current 'bump' value.
 
   // Operations on clauses:
-  //
   void attachClause(ClauseRef cr);                      // Attach a clause to watcher lists.
   void detachClause(ClauseRef cr, bool strict = false); // Detach a clause to watcher lists.
   void removeClause(ClauseRef cr);                      // Detach and free a clause.
@@ -272,7 +263,6 @@ protected:
   bool satisfied(const Clause &c) const;                // Returns TRUE if a clause is satisfied in the current state.
 
   // Misc:
-  //
   int decisionLevel() const;           // Gives the current decisionlevel.
   uint32_t abstractLevel(Var x) const; // Used to represent an abstraction of sets of decision levels.
   ClauseRef reason(Var x) const;
@@ -282,7 +272,6 @@ protected:
   void relocAll(ClauseAllocator &to);
 
   // Static helpers:
-  //
 
   // Returns a random float 0 <= x < 1. Seed must never be 0.
   static inline double drand(double &seed) {
@@ -301,8 +290,13 @@ protected:
 //=================================================================================================
 // Implementation of inline methods:
 
-inline ClauseRef Solver::reason(Var x) const { return vardata[x].reason; }
-inline int Solver::level(Var x) const { return vardata[x].level; }
+inline ClauseRef Solver::reason(Var x) const {
+  return vardata[x].reason;
+}
+
+inline int Solver::level(Var x) const {
+  return vardata[x].level;
+}
 
 inline void Solver::insertVarOrder(Var x) {
   if (!order_heap.inHeap(x) && decision[x]) {
@@ -310,36 +304,43 @@ inline void Solver::insertVarOrder(Var x) {
   }
 }
 
-inline void Solver::varDecayActivity() { var_inc *= (1 / var_decay); }
-inline void Solver::varBumpActivity(Var v) { varBumpActivity(v, var_inc); }
+inline void Solver::varDecayActivity() { variable_bump *= (1 / var_decay); }
+
+inline void Solver::varBumpActivity(Var v) { varBumpActivity(v, variable_bump); }
+
 inline void Solver::varBumpActivity(Var v, double inc) {
-  if ((activity[v] += inc) > 1e100) {
-    // Rescale:
-    for (int i = 0; i < nVars(); i++)
+  if ((activity[v] += inc) > 1e100) { // Rescale:
+    for (int i = 0; i < nVars(); i++) {
       activity[i] *= 1e-100;
-    var_inc *= 1e-100;
+    }
+    variable_bump *= 1e-100;
   }
 
   // Update order_heap with respect to new activity:
-  if (order_heap.inHeap(v))
+  if (order_heap.inHeap(v)) {
     order_heap.decrease(v);
+  }
 }
 
-inline void Solver::claDecayActivity() { cla_inc *= (1 / clause_decay); }
+inline void Solver::claDecayActivity() {
+  clause_bump *= (1 / clause_decay);
+}
+
 inline void Solver::clauseBumpActivity(Clause &c) {
-  if ((c.activity() += cla_inc) > 1e20) {
-    // Rescale:
-    for (int i = 0; i < learnts.size(); i++)
-      ca[learnts[i]].activity() *= 1e-20;
-    cla_inc *= 1e-20;
+  if ((c.activity() += clause_bump) > 1e20) { // Rescale:
+    for (int i = 0; i < addition_clauses.size(); i++) {
+      ca[addition_clauses[i]].activity() *= 1e-20;
+    }
+    clause_bump *= 1e-20;
   }
 }
 
 inline void Solver::checkGarbage(void) { return checkGarbage(garbage_frac); }
 
 inline void Solver::checkGarbage(double gf) {
-  if (ca.wasted() > ca.size() * gf)
+  if (ca.wasted() > ca.size() * gf) {
     garbageCollect();
+  }
 }
 
 // NOTE: enqueue does not set the ok flag! (only public methods do)
@@ -352,21 +353,23 @@ inline bool Solver::enqueue(Literal p, ClauseRef from) {
 }
 
 inline bool Solver::addClause(const vec<Literal> &clause) {
-  clause.copyTo(add_clause_buffer);
-  return addClause_(add_clause_buffer);
+  clause.copyTo(tmp_add_clause_buffer);
+  return addClause_(tmp_add_clause_buffer);
 }
 inline bool Solver::addEmptyClause() {
-  add_clause_buffer.clear();
-  return addClause_(add_clause_buffer);
+  tmp_add_clause_buffer.clear();
+  return addClause_(tmp_add_clause_buffer);
 }
 
 inline bool Solver::addClause(Literal p) {
-  add_clause_buffer.clear();
-  add_clause_buffer.push(p);
-  return addClause_(add_clause_buffer);
+  tmp_add_clause_buffer.clear();
+  tmp_add_clause_buffer.push(p);
+  return addClause_(tmp_add_clause_buffer);
 }
 
-inline bool Solver::isRemoved(ClauseRef cr) const { return ca[cr].mark() == 1; }
+inline bool Solver::isRemoved(ClauseRef cr) const {
+  return ca[cr].mark() == 1;
+}
 
 // A clause is locked whenever it has been used for an instance of propagation.
 // The relevant background invariant here is that the last literal to be assigned is at the first index of a clause.
@@ -380,12 +383,12 @@ inline bool Solver::locked(const Clause &clause) const {
 
 // Creates a mark to signify the start of a new level in the trail.
 inline void Solver::newDecisionLevel() {
-  trail_lim.push(trail.size());
+  trail_separators.push(trail.size());
 }
 
 // A count of the number of markers used to indicate a new level.
 inline int Solver::decisionLevel() const {
-  return trail_lim.size();
+  return trail_separators.size();
 }
 
 inline uint32_t Solver::abstractLevel(Var x) const {
@@ -433,9 +436,9 @@ inline int Solver::nFreeVars() const {
   // If no assumptions have been made, subtract the trail.
   // If some assumptions have been made, things are more difficult, as assumptions are mixed with consequences of those assumptions.
   // Taking the first separator will discount propagations with no assumptions, but some additional propagations may have happened.
-  return (int)unassigned_decision_variable_count - (trail_lim.size() == 0 ? trail.size() : trail_lim[0]);
+  return (int)unassigned_decision_variable_count - (trail_separators.size() == 0 ? trail.size() : trail_separators[0]);
 }
-inline void Solver::setPolarity(Var v, lbool b) { user_pol[v] = b; }
+inline void Solver::setPolarity(Var v, lbool b) { user_polarity[v] = b; }
 
 // If b is false, the value of v is not up for decision, otherwise the value of v may be set.
 // Only used during with a fresh variable.
@@ -449,15 +452,33 @@ inline void Solver::setDecisionVar(Var v, bool b) {
   decision[v] = b;
   insertVarOrder(v);
 }
-inline void Solver::setConfBudget(int64_t x) { conflict_budget = conflicts + x; }
-inline void Solver::setPropBudget(int64_t x) { propagation_budget = propagations + x; }
-inline void Solver::interrupt() { asynch_interrupt = true; }
-inline void Solver::clearInterrupt() { asynch_interrupt = false; }
-inline void Solver::budgetOff() { conflict_budget = propagation_budget = -1; }
+
+inline void Solver::setConfBudget(int64_t x) {
+  conflict_budget = conflicts + x;
+}
+
+inline void Solver::setPropBudget(int64_t x) {
+  propagation_budget = propagations + x;
+}
+
+inline void Solver::interrupt() {
+  asynch_interrupt = true;
+}
+
+inline void Solver::clearInterrupt() {
+  asynch_interrupt = false;
+}
+
+inline void Solver::budgetOff() {
+  conflict_budget = -1;
+  propagation_budget = -1;
+}
+
 inline bool Solver::withinBudget() const {
-  return !asynch_interrupt &&
-         (conflict_budget < 0 || conflicts < (uint64_t)conflict_budget) &&
-         (propagation_budget < 0 || propagations < (uint64_t)propagation_budget);
+  bool conflicts_ok = conflict_budget < 0 || conflicts < (uint64_t)conflict_budget;
+  bool propagations_ok = (propagation_budget < 0 || propagations < (uint64_t)propagation_budget);
+
+  return !asynch_interrupt && conflicts_ok && propagations_ok;
 }
 
 // FIXME: after the introduction of asynchronous interrruptions the solve-versions that return a
@@ -468,65 +489,53 @@ inline bool Solver::solve() {
   assumptions.clear();
   return solve_() == l_True;
 }
+
 inline bool Solver::solve(Literal p) {
   budgetOff();
   assumptions.clear();
   assumptions.push(p);
   return solve_() == l_True;
 }
-inline bool Solver::solve(Literal p, Literal q) {
-  budgetOff();
-  assumptions.clear();
-  assumptions.push(p);
-  assumptions.push(q);
-  return solve_() == l_True;
-}
-inline bool Solver::solve(Literal p, Literal q, Literal r) {
-  budgetOff();
-  assumptions.clear();
-  assumptions.push(p);
-  assumptions.push(q);
-  assumptions.push(r);
-  return solve_() == l_True;
-}
+
 inline bool Solver::solve(const vec<Literal> &assumps) {
   budgetOff();
   assumps.copyTo(assumptions);
   return solve_() == l_True;
 }
+
 inline lbool Solver::solveLimited(const vec<Literal> &assumps) {
   assumps.copyTo(assumptions);
   return solve_();
 }
-inline bool Solver::okay() const { return unsat_unknown; }
 
-inline ClauseIterator Solver::clausesBegin() const { return ClauseIterator(ca, &clauses[0]); }
-inline ClauseIterator Solver::clausesEnd() const { return ClauseIterator(ca, &clauses[clauses.size()]); }
-inline TrailIterator Solver::trailBegin() const { return TrailIterator(&trail[0]); }
+inline bool Solver::okay() const {
+  return unsat_unknown;
+}
+
+inline ClauseIterator Solver::clausesBegin() const {
+  return ClauseIterator(ca, &original_clauses[0]);
+}
+
+inline ClauseIterator Solver::clausesEnd() const {
+  return ClauseIterator(ca, &original_clauses[original_clauses.size()]);
+}
+
+inline TrailIterator Solver::trailBegin() const {
+  return TrailIterator(&trail[0]);
+}
+
 inline TrailIterator Solver::trailEnd() const {
-  return TrailIterator(&trail[decisionLevel() == 0 ? trail.size() : trail_lim[0]]);
+  return TrailIterator(&trail[decisionLevel() == 0 ? trail.size() : trail_separators[0]]);
 }
 
 inline void Solver::toDimacs(const char *file) {
-  vec<Literal> as;
-  toDimacs(file, as);
+  vec<Literal> assumptions;
+  toDimacs(file, assumptions);
 }
+
 inline void Solver::toDimacs(const char *file, Literal p) {
   vec<Literal> as;
   as.push(p);
-  toDimacs(file, as);
-}
-inline void Solver::toDimacs(const char *file, Literal p, Literal q) {
-  vec<Literal> as;
-  as.push(p);
-  as.push(q);
-  toDimacs(file, as);
-}
-inline void Solver::toDimacs(const char *file, Literal p, Literal q, Literal r) {
-  vec<Literal> as;
-  as.push(p);
-  as.push(q);
-  as.push(r);
   toDimacs(file, as);
 }
 
