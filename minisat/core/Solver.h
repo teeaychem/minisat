@@ -41,7 +41,6 @@ public:
   virtual ~Solver();
 
   // Problem specification:
-  //
   Var newVar(lbool upol = l_Undef, bool dvar = true); // Add a new variable with parameters specifying variable mode.
   void releaseVar(Literal l);                         // Make literal true and promise to never refer to variable again.
 
@@ -52,7 +51,6 @@ public:
   bool addClause_(vec<Literal> &clause); // Add a clause to the solver without making superflous internal copy. Will change the passed vector 'clause'.
 
   // Solving:
-  //
   bool simplify();                                 // Removes already satisfied clauses.
   bool solve(const vec<Literal> &assumps);         // Search for a model that respects a given set of assumptions.
   lbool solveLimited(const vec<Literal> &assumps); // Search for a model that respects a given set of assumptions (With resource constraints).
@@ -77,12 +75,10 @@ public:
   void toDimacs(const char *file, Literal p);
 
   // Variable mode:
-  //
   void setPolarity(Var v, lbool b);   // Declare which polarity the decision heuristic should use for a variable. Requires mode 'polarity_user'.
   void setDecisionVar(Var v, bool b); // Declare if a variable should be eligible for selection in the decision heuristic.
 
   // Read state:
-  //
   lbool value(Var x) const;          // The current value of a variable.
   lbool value(Literal p) const;      // The current value of a literal.
   lbool modelValue(Var x) const;     // The value of a variable in the last model. The last call to solve must have been satisfiable.
@@ -102,19 +98,16 @@ public:
   void clearInterrupt(); // Clear interrupt indicator flag.
 
   // Memory managment:
-  //
   virtual void garbageCollect();
   void checkGarbage(double gf);
   void checkGarbage();
 
   // Extra results: (read-only member variable)
-  //
   vec<lbool> model; // If problem is satisfiable, this vector contains the model (if any).
   LSet conflict;    // If problem is unsatisfiable (possibly under assumptions),
                     // this vector represent the final conflict clause expressed in the assumptions.
 
   // Mode of operation:
-  //
   int verbosity;
   double var_decay;
   double clause_decay;
@@ -137,13 +130,11 @@ public:
   double learntsize_adjust_inc;
 
   // Statistics: (read-only member variable)
-  //
   uint64_t solves, starts, decisions, rnd_decisions, propagations, conflicts;
   uint64_t unassigned_decision_variable_count, num_clauses, num_learnts, clauses_literals, learnts_literals, max_literals, tot_literals;
 
 protected:
   // Helper structures:
-  //
   struct VarData {
     ClauseRef reason;
     int level;
@@ -183,7 +174,6 @@ protected:
   };
 
   // Solver state:
-  //
   vec<ClauseRef> original_clauses; // List of problem clauses.
   vec<ClauseRef> addition_clauses; // List of learnt clauses.
   vec<Literal> trail;              // Assignment stack; stores all assigments made in the order they were made.
@@ -196,8 +186,8 @@ protected:
   VMap<lbool> user_polarity; // The users preferred polarity of each variable.
   VMap<char> decision;       // Declares if a variable is eligible for selection in the decision heuristic.
   VMap<VarData> vardata;     // Stores reason and level for each variable.
-  OccLists<Literal, vec<Watcher>, WatcherDeleted, MkIndexLit>
-      watches; // 'watches[lit]' is a list of constraints watching 'lit' (will go there if literal becomes true).
+
+  OccLists<Literal, vec<Watcher>, WatcherDeleted, MkIndexLit> watches; // 'watches[lit]' is a list of constraints watching 'lit' (will go there if literal becomes true).
 
   Heap<Var, VarOrderLt> order_heap; // A priority queue of variables ordered with respect to the variable activity.
 
@@ -289,7 +279,6 @@ protected:
 
 //=================================================================================================
 // Implementation of inline methods:
-
 inline ClauseRef Solver::reason(Var x) const {
   return vardata[x].reason;
 }

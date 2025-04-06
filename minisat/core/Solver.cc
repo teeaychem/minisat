@@ -21,6 +21,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include <math.h>
 
 #include "minisat/core/Solver.h"
+#include "minisat/core/SolverTypes.h"
 #include "minisat/mtl/Alg.h"
 #include "minisat/mtl/Sort.h"
 #include "minisat/utils/System.h"
@@ -449,16 +450,18 @@ void Solver::analyze(ClauseRef conflict, vec<Literal> &out_learnt, int &out_btle
 
   } else if (ccmin_mode == 1) {
     for (; i < out_learnt.size(); i++) {
-      Var x = var(out_learnt[i]);
+      Literal ith_literal = out_learnt[i];
+      Var ith_var = var(ith_literal);
+      ClauseRef ith_reason = reason(ith_var);
 
-      if (reason(x) == CRef_Undef) { // Keep any literal whose reason has been removed.
-        out_learnt[j++] = out_learnt[i];
+      if (ith_reason == CRef_Undef) { // Keep any literal whose reason has been removed.
+        out_learnt[j++] = ith_literal;
       } else {
-        Clause &clause = ca[reason(var(out_learnt[i]))];
+        Clause &clause = ca[ith_reason];
         for (int k = 1; k < clause.size(); k++) {
           // Keep any literal whose current derivation rests on an unseen clause.
           if (!tmp_seen[var(clause[k])] && level(var(clause[k])) > 0) {
-            out_learnt[j++] = out_learnt[i];
+            out_learnt[j++] = ith_literal;
             break;
           }
         }
@@ -472,6 +475,12 @@ void Solver::analyze(ClauseRef conflict, vec<Literal> &out_learnt, int &out_btle
   out_learnt.shrink(i - j);
   tot_literals += out_learnt.size();
 
+  // A key invariant is:
+  // - The asserted literal of an asserting clause is the first literal of the clause.
+  // Here, the invariant is upheld by switching the literal with the highest level to index 0.
+  // A key observation is that resolution ensures there's exactly one literal at the highest level.
+  // For, otherwise resolution would not terminate at a unique implication point.
+
   // Find correct backtrack level:
   if (out_learnt.size() == 1) {
     out_btlevel = 0;
@@ -484,10 +493,10 @@ void Solver::analyze(ClauseRef conflict, vec<Literal> &out_learnt, int &out_btle
       }
     }
     // Swap-in this literal at index 1:
-    Literal p = out_learnt[max_idx];
+    Literal asserted_literal = out_learnt[max_idx];
     out_learnt[max_idx] = out_learnt[1];
-    out_learnt[1] = p;
-    out_btlevel = level(var(p));
+    out_learnt[1] = asserted_literal;
+    out_btlevel = level(var(asserted_literal));
   }
 
   for (int j = 0; j < tmp_analyze_toclear.size(); j++) {
@@ -601,12 +610,14 @@ void Solver::analyzeFinal(Literal p, LSet &out_conflict) {
 
   for (int i = trail.size() - 1; i >= trail_separators[0]; i--) {
     Var x = var(trail[i]);
-    if (tmp_seen[x]) {               // Consider only those literals used to derive p.
-      if (reason(x) == CRef_Undef) { // Filter any implied literals.
-        assert(level(x) > 0);        // Why is this? Is it not possible to BCP on unit clauses and then on assumptions?
+    ClauseRef x_reason = reason(x);
+
+    if (tmp_seen[x]) {              // Consider only those literals used to derive p.
+      if (x_reason == CRef_Undef) { // Filter any implied literals.
+        assert(level(x) > 0);       // Why is this? Is it not possible to BCP on unit clauses and then on assumptions?
         out_conflict.insert(~trail[i]);
       } else {
-        Clause &clause = ca[reason(x)];
+        Clause &clause = ca[x_reason];
         for (int j = 1; j < clause.size(); j++) { // For each literal in the clause
           if (level(var(clause[j])) > 0) {        // If the literal was assumed
             tmp_seen[var(clause[j])] = 1;         // Mark the literal as seen
